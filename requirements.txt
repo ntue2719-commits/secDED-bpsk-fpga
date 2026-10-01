@@ -1,0 +1,8 @@
+# Golden Model has no third-party runtime dependency.
+# Python standard library is sufficient.
+#
+# Recommended development/test environment:
+# Python >= 3.10
+#
+# Optional test runner:
+pytest>=8.0
