@@ -31,6 +31,45 @@ Hamming SECDED Decoder
 4-bit result + 2-bit status
 ```
 
+## RTL Block Diagrams
+
+The following diagrams describe the **planned** `tx_rx_dsp_top.v` datapath and its module interfaces. They are architectural specifications, not evidence of completed RTL or FPGA validation.
+
+### Top-Level DSP Interface
+
+![Top-level tx_rx_dsp_top.v input/output interface](docs/images/tx_rx_dsp_top_interface.png)
+
+The top-level module accepts a 4-bit payload, a 3-bit noise level, a 2-bit error mode, and a one-cycle start request. Its outputs are the recovered 4-bit payload, 2-bit SECDED status, and transaction-completion signal.
+
+| Signal | Direction | Width | Purpose |
+|---|---|---:|---|
+| `i_clk` | Input | 1 | 50 MHz system clock |
+| `i_rst_n` | Input | 1 | Active-low reset |
+| `i_data` | Input | 4 | Input payload |
+| `i_noise_level` | Input | 3 | Selects noise amplitude (0–7) |
+| `i_err_mode` | Input | 2 | Selects no/single/double/reserved error mode |
+| `i_start` | Input | 1 | Starts a transaction while idle |
+| `o_data` | Output | 4 | Decoded payload; zero for detected double-bit errors |
+| `o_status` | Output | 2 | Decoder status (`00`, `01`, `10`) |
+| `o_done` | Output | 1 | Transaction completion indication |
+
+### Internal DSP Architecture
+
+![Internal SECDED-BPSK datapath showing six RTL modules](docs/images/tx_rx_dsp_top_architecture.png)
+
+| Stage | RTL module | Operation |
+|---|---|---|
+| 1 | `hamming_encoder.v` | Encode 4-bit data into an 8-bit SECDED codeword |
+| 2 | `bit_flip_channel.v` | Inject deterministic errors using an LFSR (seed `0xA5`) |
+| 3 | `bpsk_modulator.v` | Serialize MSB-first; map `0 → +127`, `1 → −127` (64 samples/codeword) |
+| 4 | `lfsr_noise_injector.v` | Add deterministic signed noise (seed `0x01`) and saturate to signed 8-bit |
+| 5 | `bpsk_demodulator.v` | Sum eight samples per bit; recover an 8-bit codeword |
+| 6 | `hamming_decoder.v` | Correct single-bit errors or detect double-bit errors |
+
+Adjacent stages use `o_valid` to qualify their outputs. The modulator and noise injector additionally propagate a sample-stream `o_done` on the final sample; **top-level** `o_done` instead denotes completion of the whole transaction. These signals must not be confused. The clock and active-low reset are shared across the datapath.
+
+The complete timing, handshake and reset contracts are documented in [`docs/spec.md`](docs/spec.md).
+
 ## Quick Start
 
 Requirements: Python 3.10+. The Golden Model uses only the Python standard library; `pytest` is optional.
@@ -42,6 +81,7 @@ cd secDED-bpsk-fpga
 python -m pip install -r requirements.txt
 python python/golden_model.py
 python python/test_golden_model.py
+python python/export_hex.py
 
 # Optional test runner
 python -m pytest python -v
