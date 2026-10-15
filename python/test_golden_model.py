@@ -16,6 +16,8 @@ from golden_model import (
     bpsk_modulate,
     bpsk_demodulate,
     add_noise,
+    error_lfsr_next,
+    noise_lfsr_next,
 )
 
 
@@ -140,23 +142,98 @@ def test_error_modes_and_reserved_mode():
         assert rr.status == NO_ERROR
 
 
+def test_noise_uses_current_lfsr_state():
+    """Noise polarity uses the pre-update LFSR state, even at level 0."""
+    for seed in (0x01, 0x80, 0xA5):
+        for level, amplitude in enumerate(NOISE_AMPLITUDE):
+            state = seed
+            samples = [127, -127, 127, -127, 127]
+            noisy, state_after, noise_values = add_noise(samples, level, seed)
+            for sample, actual_noise, actual_sample in zip(samples, noise_values, noisy):
+                expected_noise = -amplitude if state & 0x80 else amplitude
+                assert actual_noise == expected_noise
+                assert actual_sample == max(-128, min(127, sample + expected_noise))
+                state = noise_lfsr_next(state)
+            assert state_after == state
+
+
+def test_noise_sign_preservation_exhaustive():
+    """Frozen amplitudes cannot invert a BPSK symbol or demodulated bit."""
+    for level in range(8):
+        for codeword in range(256):
+            tx = bpsk_modulate(codeword)
+            noisy, _, _ = add_noise(tx, level, NOISE_LFSR_SEED)
+            assert all((a > 0) == (b > 0) for a, b in zip(tx, noisy))
+            assert bpsk_demodulate(noisy) == codeword
+
+
+def test_error_lfsr_current_state_and_reserved_mode():
+    """Current state selects positions; every accepted codeword advances state."""
+    for seed in (0xA5, 0x00, 0xFF):
+        for mode in (ERR_MODE_NO_ERROR, ERR_MODE_SINGLE,
+                     ERR_MODE_DOUBLE, ERR_MODE_RESERVED):
+            corrupted, next_state, positions = inject_bit_error(0x5A, seed, mode)
+            assert next_state == error_lfsr_next(seed)
+            if mode in (ERR_MODE_NO_ERROR, ERR_MODE_RESERVED):
+                assert corrupted == 0x5A and positions == ()
+            elif mode == ERR_MODE_SINGLE:
+                assert positions == (seed & 7,)
+                assert corrupted == (0x5A ^ (1 << positions[0]))
+            else:
+                p1, p2 = seed & 7, (seed >> 3) & 7
+                if p1 == p2:
+                    p2 = (p2 + 1) % 8
+                assert positions == (p1, p2)
+                assert corrupted == (0x5A ^ (1 << p1) ^ (1 << p2))
+
+
 def test_full_dsp_matrix():
-    # Frozen minimum verification matrix:
-    # 16 inputs x 8 noise levels x 3 useful error modes = 384 transactions.
+    """384 transactions, one model instance, continuous non-reseeded LFSRs."""
+    model = GoldenModel()
+    count = 0
     for data in range(16):
         for noise_level in range(8):
-            for err_mode in (
-                ERR_MODE_NO_ERROR,
-                ERR_MODE_SINGLE,
-                ERR_MODE_DOUBLE,
-            ):
-                model = GoldenModel()
+            for err_mode in (ERR_MODE_NO_ERROR, ERR_MODE_SINGLE, ERR_MODE_DOUBLE):
+                before_error = model.error_lfsr
+                before_noise = model.noise_lfsr
                 r = model.process(data, noise_level, err_mode)
+                assert r.input_data == data
+                assert r.encoded_word == hamming_encode(data)
+                assert r.error_lfsr_before == before_error
+                assert r.noise_lfsr_before == before_noise
+                assert r.error_lfsr_after == error_lfsr_next(before_error)
+                expected_noise_state = before_noise
+                for _ in range(64):
+                    expected_noise_state = noise_lfsr_next(expected_noise_state)
+                assert r.noise_lfsr_after == expected_noise_state
+                assert model.error_lfsr == r.error_lfsr_after
+                assert model.noise_lfsr == r.noise_lfsr_after
+                assert len(r.bpsk_samples) == len(r.noisy_samples) == 64
+                assert r.bpsk_samples == bpsk_modulate(r.corrupted_word)
+                assert r.received_word == r.corrupted_word
+                expected_data, expected_status, expected_syndrome, expected_cw = (
+                    hamming_decode(r.received_word)
+                )
+                assert (r.result_data, r.status, r.syndrome, r.corrected_word) == (
+                    expected_data, expected_status, expected_syndrome, expected_cw
+                )
+                if err_mode == ERR_MODE_NO_ERROR:
+                    assert (r.result_data, r.status) == (data, NO_ERROR)
+                elif err_mode == ERR_MODE_SINGLE:
+                    assert (r.result_data, r.status) == (data, SINGLE_BIT_CORRECTED)
+                else:
+                    assert (r.result_data, r.status) == (0, DOUBLE_BIT_DETECTED)
+                count += 1
+    assert count == 384
 
-                assert len(r.bpsk_samples) == 64
-                assert len(r.noisy_samples) == 64
-                assert r.error_lfsr_before == ERROR_LFSR_SEED
-                assert r.noise_lfsr_before == NOISE_LFSR_SEED
+
+def test_reset_restores_determinism():
+    model = GoldenModel()
+    first = model.process(0xA, noise_level=7, err_mode=ERR_MODE_DOUBLE)
+    model.process(0x1, noise_level=3, err_mode=ERR_MODE_SINGLE)
+    model.reset()
+    replay = model.process(0xA, noise_level=7, err_mode=ERR_MODE_DOUBLE)
+    assert replay == first
 
 
 if __name__ == "__main__":
@@ -169,5 +246,9 @@ if __name__ == "__main__":
     test_saturation_boundaries()
     test_error_lfsr_update_once_per_transaction()
     test_error_modes_and_reserved_mode()
+    test_noise_uses_current_lfsr_state()
+    test_noise_sign_preservation_exhaustive()
+    test_error_lfsr_current_state_and_reserved_mode()
     test_full_dsp_matrix()
+    test_reset_restores_determinism()
     print("PASS: all golden-model tests")
