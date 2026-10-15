@@ -1,5 +1,3 @@
-"""Verification tests for the SECDED + BPSK Golden Model."""
-
 from golden_model import (
     GoldenModel,
     ERR_MODE_NO_ERROR,
