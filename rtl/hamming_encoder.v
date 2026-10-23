@@ -54,12 +54,12 @@ always @ (posedge i_clk) begin
         if(r_pending) begin
             o_codeword <= w_codeword;
             o_valid <= 1'b1;
-            r_pendding <= 1'b0;
+            r_pending <= 1'b0;
         end
         else if (i_start) begin
             //accept request only when idle
             r_data <= i_data;
-            r_pendding <= 1'b1;
+            r_pending <= 1'b1;
         end
     end
 end
