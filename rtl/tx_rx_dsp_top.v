@@ -1,4 +1,3 @@
-
 `timescale 1ns / 1ps
 `default_nettype none
 
@@ -15,8 +14,6 @@
 //     -> LFSR Noise Injector
 //     -> BPSK Demodulator
 //     -> Hamming Decoder
-//
-// Status      : Skeleton - signals only
 // ============================================================
 
 module tx_rx_dsp_top (
@@ -80,6 +77,110 @@ module tx_rx_dsp_top (
     wire [3:0]               w_decoded_data;
     wire [1:0]               w_decoded_status;
     wire                     w_decoded_valid;
+
+    // ========================================================
+    // Transaction Control & Configuration Latching
+    // ========================================================
+    reg [2:0] r_noise_level;
+    reg [1:0] r_err_mode;
+    reg       r_busy;
+
+    wire w_start_gated = i_start && !r_busy;
+
+    // ========================================================
+    // Sub-Module Instantiations
+    // ========================================================
+    hamming_encoder u_hamming_encoder (
+        .i_clk      (i_clk),
+        .i_rst_n    (i_rst_n),
+        .i_data     (i_data),
+        .i_start    (w_start_gated),
+        .o_codeword (w_encoded_word),
+        .o_valid    (w_encoded_valid)
+    );
+
+    bit_flip_channel u_bit_flip_channel (
+        .i_clk      (i_clk),
+        .i_rst_n    (i_rst_n),
+        .i_codeword (w_encoded_word),
+        .i_valid    (w_encoded_valid),
+        .i_err_mode (r_err_mode),
+        .o_codeword (w_corrupted_word),
+        .o_valid    (w_corrupted_valid)
+    );
+
+    bpsk_modulator u_bpsk_modulator (
+        .i_clk      (i_clk),
+        .i_rst_n    (i_rst_n),
+        .i_codeword (w_corrupted_word),
+        .i_valid    (w_corrupted_valid),
+        .o_sample   (w_bpsk_sample),
+        .o_valid    (w_bpsk_valid),
+        .o_done     (w_bpsk_done)
+    );
+
+    lfsr_noise_injector u_lfsr_noise_injector (
+        .i_clk         (i_clk),
+        .i_rst_n       (i_rst_n),
+        .i_sample      (w_bpsk_sample),
+        .i_valid       (w_bpsk_valid),
+        .i_done        (w_bpsk_done),
+        .i_noise_level (r_noise_level),
+        .o_sample      (w_noisy_sample),
+        .o_valid       (w_noisy_valid),
+        .o_done        (w_noisy_done)
+    );
+
+    bpsk_demodulator u_bpsk_demodulator (
+        .i_clk      (i_clk),
+        .i_rst_n    (i_rst_n),
+        .i_sample   (w_noisy_sample),
+        .i_valid    (w_noisy_valid),
+        .i_done     (w_noisy_done),
+        .o_codeword (w_demod_word),
+        .o_valid    (w_demod_valid)
+    );
+
+    hamming_decoder u_hamming_decoder (
+        .i_clk      (i_clk),
+        .i_rst_n    (i_rst_n),
+        .i_codeword (w_demod_word),
+        .i_valid    (w_demod_valid),
+        .o_data     (w_decoded_data),
+        .o_status   (w_decoded_status),
+        .o_valid    (w_decoded_valid)
+    );
+
+    // ========================================================
+    // Output Registration & Completion Handshake
+    // ========================================================
+    always @ (posedge i_clk) begin
+        if (!i_rst_n) begin
+            r_noise_level <= 3'd0;
+            r_err_mode    <= 2'd0;
+            r_busy        <= 1'b0;
+            o_data        <= 4'd0;
+            o_status      <= 2'd0;
+            o_done        <= 1'b0;
+        end
+        else begin
+            o_done <= 1'b0;
+
+            if (!r_busy) begin
+                if (i_start) begin
+                    r_busy        <= 1'b1;
+                    r_noise_level <= i_noise_level;
+                    r_err_mode    <= i_err_mode;
+                end
+            end
+            else if (w_decoded_valid) begin
+                o_data   <= w_decoded_data;
+                o_status <= w_decoded_status;
+                o_done   <= 1'b1;
+                r_busy   <= 1'b0;
+            end
+        end
+    end
 
 endmodule
 
