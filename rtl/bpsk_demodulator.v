@@ -25,7 +25,7 @@ module bpsk_demodulator (
     end
 
     // BPSK demodulation
-    always @(posedge i_clk or negedge i_rst_n) begin
+    always @(posedge i_clk) begin
         if (!i_rst_n) begin
             bit_index    <= 3'd0;
             sample_index <= 3'd0;
@@ -39,8 +39,16 @@ module bpsk_demodulator (
 
             if (i_valid) begin
 
+                // If done arrives before sample 63,
+                // discard the incomplete frame.
+                if (i_done && !((bit_index == 3'd7) && (sample_index == 3'd7))) begin
+                    bit_index    <= 3'd0;
+                    sample_index <= 3'd0;
+                    demod_acc    <= 11'sd0;
+                end
+
                 // Collect 8 samples for one bit
-                if (sample_index == 3'd7) begin
+                else if (sample_index == 3'd7) begin
 
                     // Decision using the sum including
                     // the current (eighth) sample
@@ -56,7 +64,11 @@ module bpsk_demodulator (
                     // Check whether all 8 bits are done
                     if (bit_index == 3'd7) begin
                         bit_index <= 3'd0;
-                        o_valid   <= 1'b1;
+
+                        // A complete codeword is valid only
+                        // when done marks the final sample.
+                        if (i_done)
+                            o_valid <= 1'b1;
                     end
                     else begin
                         bit_index <= bit_index + 1'b1;
@@ -70,8 +82,8 @@ module bpsk_demodulator (
                 end
             end
 
-            // If the frame ends without a valid sample,
-            // discard any incomplete frame.
+            // done implies valid in the normal interface.
+            // If not, discard any incomplete frame.
             else if (i_done) begin
                 bit_index    <= 3'd0;
                 sample_index <= 3'd0;
