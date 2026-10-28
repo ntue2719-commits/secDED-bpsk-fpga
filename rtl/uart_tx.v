@@ -1,4 +1,3 @@
-
 `timescale 1ns / 1ps
 //////////////////////////////////////////////////////////////////////////////////
 // Company:
@@ -12,14 +11,16 @@
 // Description:
 // UART transmitter, 115200 baud, 8-N-1, LSB-first.
 // System clock: 50 MHz.
-// CLKS_PER_BIT = 434.
+// Default CLKS_PER_BIT = 434.
 // i_start is accepted only while idle.
 // o_busy remains HIGH during the complete UART frame.
 //////////////////////////////////////////////////////////////////////////////////
 
 `default_nettype none
 
-module uart_tx (
+module uart_tx #(
+    parameter integer CLKS_PER_BIT = 434
+)(
     input  wire       i_clk,
     input  wire       i_rst_n,
     input  wire [7:0] i_data,
@@ -32,8 +33,9 @@ module uart_tx (
     // UART timing:
     // System clock = 50 MHz
     // Baud rate = 115200
-    // CLKS_PER_BIT = 50_000_000 / 115200 = 434
-    localparam integer CLKS_PER_BIT = 434;
+    // Default CLKS_PER_BIT = 50_000_000 / 115200 = 434
+    // The parameter can be overridden in simulation
+    // to reduce simulation time.
 
     // UART TX FSM states
     localparam [2:0] IDLE  = 3'd0;
@@ -45,7 +47,7 @@ module uart_tx (
     reg [2:0] r_state;
 
     // Clock counter inside one UART bit period.
-    // 9 bits are sufficient because maximum count is 433.
+    // 9 bits are sufficient for the default maximum count of 433.
     reg [8:0] r_clk_count;
 
     // Current UART data bit index:
@@ -169,4 +171,3 @@ module uart_tx (
 endmodule
 
 `default_nettype wire
-
