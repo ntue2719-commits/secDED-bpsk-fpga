@@ -13,7 +13,8 @@
 // Extended Hamming SECDED (8,4) decoder.
 // Mapping: {p0,d3,d2,d1,p3,d0,p2,p1}
 // Registered output: valid one cycle after accepted i_valid.
-// Status: 00=no error, 01=single bit corrected, 10=double bit detected.`default_nettype none
+// Status: 00=no error, 01=single bit corrected, 10=double bit detected.
+`default_nettype none
 module hamming_decoder(
     input wire      i_clk,
     input wire      i_rst_n,
@@ -21,9 +22,9 @@ module hamming_decoder(
     input wire      i_valid,
     
     output reg [3:0] o_data,
-    output reg [1:0] o_valid,
+    output reg [1:0] o_status,
     output reg       o_valid
-)
+);
 
 // codeword mapping:
 //[7] = p0; overall parity 
@@ -37,9 +38,9 @@ module hamming_decoder(
 
     wire [2:0] w_syndrome;
     wire       w_parity;
-    wire [7:0] r_corrected;
-    wire [3:0] r_decoded;
-    wire [1:0] r_status;
+    reg [7:0] r_corrected;
+    reg [3:0] r_decoded;
+    reg [1:0] r_status;
 
     //S1 = p1 ^ d0 ^ d1 ^ d3
     assign w_syndrome[0] =  i_codeword[0] ^ i_codeword[2] ^ i_codeword[4] ^ i_codeword[6];
@@ -48,9 +49,9 @@ module hamming_decoder(
     //S3 = p3 ^ d1 ^ d2 ^ d3
     assign w_syndrome[2] = i_codeword[3] ^ i_codeword[4] ^ i_codeword[5] ^ i_codeword[6];
 
-    w_parity = ^i_codeword;
+    assign w_parity = ^i_codeword;
 
-    alwasy @ (*) begin
+    always @ (*) begin
         r_corrected = i_codeword;
         r_status = 2'b0;
         r_decoded = 4'd0;
