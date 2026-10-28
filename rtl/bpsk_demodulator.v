@@ -11,17 +11,17 @@ module bpsk_demodulator (
 );
 
     // Internal registers
-    reg [2:0] bit_index;
-    reg [2:0] sample_index;
+    reg [2:0] bit_index; //Use to track the bit currently being recovered
+    reg [2:0] sample_index; //Used to track which sample of the current bit is being processed
 
-    reg signed [10:0] demod_acc;
-    reg signed [10:0] sample_ext;
-    reg signed [10:0] acc_next;
+    reg signed [10:0] demod_acc; //Accumulator for the sum of samples for the current bit
+    reg signed [10:0] sample_ext; //Sign-extended version of the current sample to match the accumulator's width
+    reg signed [10:0] acc_next; //Next value of the accumulator after adding the current sample
 
     // Sign extension and accumulation
     always @(*) begin
-        sample_ext = {{3{i_sample[7]}}, i_sample};
-        acc_next   = demod_acc + sample_ext;
+        sample_ext = {{3{i_sample[7]}}, i_sample}; // Sign-extend the 8-bit sample to 11 bits
+        acc_next   = demod_acc + sample_ext; // Calculate the next accumulator value
     end
 
     // BPSK demodulation
@@ -39,8 +39,7 @@ module bpsk_demodulator (
 
             if (i_valid) begin
 
-                // If done arrives before sample 63,
-                // discard the incomplete frame.
+                // If done arrives before sample 63, discard the incomplete frame.
                 if (i_done && !((bit_index == 3'd7) && (sample_index == 3'd7))) begin
                     bit_index    <= 3'd0;
                     sample_index <= 3'd0;
