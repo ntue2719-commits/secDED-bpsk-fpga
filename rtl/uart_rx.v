@@ -1,9 +1,9 @@
 `timescale 1ns / 1ps
 //////////////////////////////////////////////////////////////////////////////////
-// Company:
-// Engineer:
-//
-// Create Date: 10/28/2026
+// Company: 
+// Engineer: 
+// 
+// Create Date: 10/28/2026 10:33:04 PM
 // Design Name:
 // Module Name: uart_rx
 // Project Name: FPGA SECDED + BPSK Communication Pipeline
@@ -12,15 +12,17 @@
 // Description:
 // UART receiver, 115200 baud, 8-N-1, LSB-first.
 // System clock: 50 MHz.
-// CLKS_PER_BIT = 434.
-// Start bit is checked near its center after 217 clocks.
-// Data bits are sampled every 434 clocks.
+// Default CLKS_PER_BIT = 434.
+// Start bit is checked near its center after CLKS_PER_BIT / 2 clocks.
+// Data bits are sampled every CLKS_PER_BIT clocks.
 // o_valid is asserted for one clock after a valid stop bit.
 //////////////////////////////////////////////////////////////////////////////////
 
 `default_nettype none
 
-module uart_rx (
+module uart_rx #(
+    parameter integer CLKS_PER_BIT = 434
+)(
     input  wire       i_clk,
     input  wire       i_rst_n,
     input  wire       i_rx,
@@ -32,13 +34,14 @@ module uart_rx (
     // UART timing:
     // System clock = 50 MHz
     // Baud rate = 115200
-    // CLKS_PER_BIT = 50_000_000 / 115200 = 434
-    localparam integer CLKS_PER_BIT  = 434;
-
+    // Default CLKS_PER_BIT = 50_000_000 / 115200 = 434
+    // The parameter can be overridden in simulation
+    // to reduce simulation time.
+    
     // Half bit period:
     // Used to verify the start bit near its center.
-    // 434 / 2 = 217 clocks.
-    localparam integer HALF_BIT_CLKS = 217;
+    // Default: 434 / 2 = 217 clocks.
+    localparam integer HALF_BIT_CLKS = CLKS_PER_BIT / 2;
 
     // UART RX FSM states
     localparam [2:0] IDLE  = 3'd0;
@@ -50,7 +53,7 @@ module uart_rx (
     reg [2:0] r_state;
 
     // Clock counter inside one UART bit period.
-    // 9 bits are sufficient because maximum count is 433.
+    // 9 bits are sufficient for the default maximum count of 433.
     reg [8:0] r_clk_count;
 
     // Current UART data bit index:
@@ -120,7 +123,7 @@ module uart_rx (
 
                 DATA: begin
                     // After the center of the start bit has been found,
-                    // sample each data bit once every 434 clocks.
+                    // sample each data bit once every CLKS_PER_BIT clocks.
                     //
                     // UART format is LSB-first:
                     // D0 -> D1 -> D2 -> ... -> D7.
