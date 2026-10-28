@@ -14,6 +14,8 @@
 // Mapping: {p0,d3,d2,d1,p3,d0,p2,p1}
 // Registered output: valid one cycle after accepted i_valid.
 // Status: 00=no error, 01=single bit corrected, 10=double bit detected.
+//////////////////////////////////////////////////////////////////////////////////
+
 `default_nettype none
 module hamming_decoder(
     input wire      i_clk,
@@ -56,21 +58,21 @@ module hamming_decoder(
         r_status = 2'b0;
         r_decoded = 4'd0;
 
-        // Non-zero	1	Flip codeword bit S-1 (bit 0..6)	01
+        // Non-zero 1 Flip codeword bit S-1 (bit 0..6) 01
         if(w_syndrome != 3'b000 && w_parity) begin
 
         //Syndrome 1-7 maps to codeword 0-6, 1<= w_syndrome <= 7 mapping to i_codeword[0]-i_codeword[6]
             r_corrected[w_syndrome - 3'd1] = ~i_codeword[w_syndrome - 3'd1];
             r_status = 2'b01;
         end
-        // 000	1	Flip bit 7 (p0)	01
+        // 000 1 Flip bit 7 (p0) 01
         else if(w_syndrome == 3'b000 && w_parity) begin
             r_status = 2'b01;
 
             // Overall parity bit error (bit 7).
             r_corrected[7] =  ~i_codeword[7];
         end
-        // Non-zero	0	Detect double-bit error; do not correct	10
+        // Non-zero 0 Detect double-bit error; do not correct 10
         else if(w_syndrome != 3'b000 && !w_parity) begin
             // Double error: diagnostic data = 0; leave word uncorrected.
             r_status = 2'b10;
