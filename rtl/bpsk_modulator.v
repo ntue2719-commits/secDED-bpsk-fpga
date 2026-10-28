@@ -15,7 +15,7 @@ module bpsk_modulator (
     reg [7:0]  codeword_reg;
     reg [5:0]  sample_index;
 
-    always @(posedge i_clk or negedge i_rst_n) begin
+    always @(posedge i_clk) begin
         if (!i_rst_n) begin
             busy         <= 1'b0;
             codeword_reg <= 8'b0;
