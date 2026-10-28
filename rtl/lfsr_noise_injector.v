@@ -66,7 +66,7 @@ module lfsr_noise_injector (
             saturated_sample = raw_sum[7:0];
     end
 
-    always @(posedge i_clk or negedge i_rst_n) begin
+    always @(posedge i_clk) begin
         if (!i_rst_n) begin
             noise_lfsr <= 8'h01;
             o_sample   <= 8'sd0;
