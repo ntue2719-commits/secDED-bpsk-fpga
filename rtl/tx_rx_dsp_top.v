@@ -5,7 +5,7 @@
 // Module      : tx_rx_dsp_top
 // Description : SECDED + BPSK DSP Pipeline Top-Level
 // Clock       : 50 MHz
-// Reset       : Active-low
+// Reset       : Synchronous active-low
 //
 // Pipeline:
 //   Hamming Encoder
