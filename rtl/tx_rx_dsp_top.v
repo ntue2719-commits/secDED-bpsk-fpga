@@ -90,6 +90,7 @@ module tx_rx_dsp_top (
     // ========================================================
     // Sub-Module Instantiations
     // ========================================================
+    // Stage 1: (8,4) SECDED encoding (4-bit payload -> 8-bit codeword)
     hamming_encoder u_hamming_encoder (
         .i_clk      (i_clk),
         .i_rst_n    (i_rst_n),
@@ -98,7 +99,7 @@ module tx_rx_dsp_top (
         .o_codeword (w_encoded_word),
         .o_valid    (w_encoded_valid)
     );
-
+    // Stage 2: Inject 0, 1, or 2 bit errors based on latched r_err_mode
     bit_flip_channel u_bit_flip_channel (
         .i_clk      (i_clk),
         .i_rst_n    (i_rst_n),
@@ -108,7 +109,7 @@ module tx_rx_dsp_top (
         .o_codeword (w_corrupted_word),
         .o_valid    (w_corrupted_valid)
     );
-
+    // Stage 3: BPSK modulation (8 samples/bit -> 64 signed samples total)
     bpsk_modulator u_bpsk_modulator (
         .i_clk      (i_clk),
         .i_rst_n    (i_rst_n),
@@ -118,7 +119,7 @@ module tx_rx_dsp_top (
         .o_valid    (w_bpsk_valid),
         .o_done     (w_bpsk_done)
     );
-
+    // Stage 4: Signed additive LFSR noise injection with [-128, 127] saturation
     lfsr_noise_injector u_lfsr_noise_injector (
         .i_clk         (i_clk),
         .i_rst_n       (i_rst_n),
@@ -130,7 +131,7 @@ module tx_rx_dsp_top (
         .o_valid       (w_noisy_valid),
         .o_done        (w_noisy_done)
     );
-
+    // Stage 5: BPSK correlation demodulator (accumulates 8 samples/bit)
     bpsk_demodulator u_bpsk_demodulator (
         .i_clk      (i_clk),
         .i_rst_n    (i_rst_n),
@@ -140,7 +141,7 @@ module tx_rx_dsp_top (
         .o_codeword (w_demod_word),
         .o_valid    (w_demod_valid)
     );
-
+    // Stage 6: SECDED decoder (corrects 1 bit, detects 2 bits)
     hamming_decoder u_hamming_decoder (
         .i_clk      (i_clk),
         .i_rst_n    (i_rst_n),
@@ -164,9 +165,11 @@ module tx_rx_dsp_top (
             o_done        <= 1'b0;
         end
         else begin
+            // Default 1-clock completion pulse
             o_done <= 1'b0;
 
             if (!r_busy) begin
+                // Latch configuration when new transaction starts
                 if (i_start) begin
                     r_busy        <= 1'b1;
                     r_noise_level <= i_noise_level;
@@ -174,6 +177,7 @@ module tx_rx_dsp_top (
                 end
             end
             else if (w_decoded_valid) begin
+                // Latch decoded results, assert o_done pulse, and release busy flag
                 o_data   <= w_decoded_data;
                 o_status <= w_decoded_status;
                 o_done   <= 1'b1;
