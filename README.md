@@ -8,6 +8,26 @@ Deterministic, bit-exact FPGA communication datapath combining **extended Hammin
 
 The complete system flow is **UART RX → UART Controller → DSP pipeline → UART Controller → UART TX**. The figures below show the implemented `tx_rx_dsp_top.v` DSP wrapper and its six processing stages, while `fpga_top.v` integrates the UART and DSP subsystems.
 
+### FPGA top-level interface
+
+![External interface of fpga_top.v](docs/images/fpga_top_blackbox.jpg)
+
+`fpga_top.v` is the board/system-level wrapper. Its external interface contains the 50 MHz system clock `i_clk`, synchronous active-low reset `i_rst_n`, serial UART receive input `i_uart_rx`, and serial UART transmit output `o_uart_tx`.
+
+### FPGA top-level internal architecture
+
+![Internal architecture of fpga_top.v](docs/images/fpga_top_low.jpg)
+
+The top-level wrapper connects four main blocks: `uart_rx`, `uart_controller`, `tx_rx_dsp_top`, and `uart_tx`. The UART receiver converts the serial request into bytes, the protocol controller extracts configuration and payload information, the DSP wrapper processes the high and low nibbles sequentially, and the UART transmitter serializes the two response bytes.
+
+The synthesizable UART configuration uses **8-N-1 at 115200 baud** with `CLKS_PER_BIT = 434` for a 50 MHz clock. During fast functional simulation, this timing parameter may be overridden without changing the UART framing or protocol behavior.
+
+### UART controller FSM
+
+![Twelve-state UART protocol and handshake FSM](docs/images/uart_controller_fsm.jpg)
+
+The `uart_controller.v` block uses a 12-state finite-state machine to coordinate the complete request/response transaction. It waits for the CONFIG and DATA bytes, starts the DSP first for the high nibble and then for the low nibble, captures the independent result/status values, and finally transmits the packed result and status bytes through `uart_tx`. Handshake states explicitly wait for DSP completion and UART transmitter busy/idle transitions before advancing.
+
 ### DSP top-level interface
 
 ![Six inputs and three outputs of tx_rx_dsp_top.v](docs/images/tx_rx_dsp_top_interface.png)
