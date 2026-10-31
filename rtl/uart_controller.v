@@ -218,4 +218,3 @@ module uart_controller (
 endmodule
 
 `default_nettype wire
-
