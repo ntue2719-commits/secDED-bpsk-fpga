@@ -1,230 +1,309 @@
+
 `timescale 1ns/1ps
 
 module bpsk_demodulator_tb;
 
-    // DUT inputs
-    reg         i_clk;
-    reg         i_rst_n;
-    reg signed [7:0] i_sample;
-    reg         i_valid;
-    reg         i_done;
+    //================================================
+    // DUT signals
+    //================================================
+    reg                 i_clk;
+    reg                 i_rst_n;
+    reg signed [7:0]    i_sample;
+    reg                 i_valid;
+    reg                 i_done;
 
-    // DUT outputs
-    wire [7:0]  o_codeword;
-    wire        o_valid;
+    wire [7:0]          o_codeword;
+    wire                o_valid;
 
-
+    //================================================
     // Test variables
+    //================================================
     integer test_count;
     integer error_count;
-    integer bit_idx;
-    integer sample_idx;
+    integer k;
+    integer b;
+    integer s;
 
     reg [7:0] expected_codeword;
 
-    // Instantiate DUT
+    //================================================
+    // DUT
+    //================================================
     bpsk_demodulator dut (
-        .i_clk       (i_clk),
-        .i_rst_n     (i_rst_n),
-        .i_sample    (i_sample),
-        .i_valid     (i_valid),
-        .i_done      (i_done),
-        .o_codeword  (o_codeword),
-        .o_valid     (o_valid)
+        .i_clk      (i_clk),
+        .i_rst_n    (i_rst_n),
+        .i_sample   (i_sample),
+        .i_valid    (i_valid),
+        .i_done     (i_done),
+        .o_codeword (o_codeword),
+        .o_valid    (o_valid)
     );
 
-    // 50 MHz clock: period = 20 ns
+    //================================================
+    // 50 MHz clock
+    // Period = 20 ns
+    //================================================
     initial begin
         i_clk = 1'b0;
         forever #10 i_clk = ~i_clk;
     end
 
-    // Reset task
-    task reset_dut;
-    begin
-        @(negedge i_clk);
-        i_rst_n  = 1'b0;
-        i_sample = 8'sd0;
-        i_valid  = 1'b0;
-        i_done   = 1'b0;
-
-        repeat (3) @(negedge i_clk);
-
-        i_rst_n = 1'b1;
-
-        @(negedge i_clk);
+    //================================================
+    // Waveform generation for EPWave
+    //================================================
+    initial begin
+        $dumpfile("bpsk_demodulator.vcd");
+        $dumpvars(0, bpsk_demodulator_tb);
     end
+
+    //================================================
+    // Error reporting
+    //================================================
+    task report_error;
+        input [8*100-1:0] message;
+        begin
+            $display("[%0t] ERROR: %0s", $time, message);
+            error_count = error_count + 1;
+        end
     endtask
 
-    // --------------------------------------------
-    // Send one BPSK codeword
+    //================================================
+    // Reset task
+    //================================================
+    task reset_dut;
+        begin
+            @(negedge i_clk);
+
+            i_rst_n  = 1'b0;
+            i_sample = 8'sd0;
+            i_valid  = 1'b0;
+            i_done   = 1'b0;
+
+            repeat (3) @(negedge i_clk);
+
+            i_rst_n = 1'b1;
+
+            @(posedge i_clk);
+            #1;
+
+            if (o_valid !== 1'b0)
+                report_error("o_valid is not zero after reset");
+
+            if (o_codeword !== 8'd0)
+                report_error("o_codeword is not zero after reset");
+
+            @(negedge i_clk);
+        end
+    endtask
+
+    //================================================
+    // Insert one idle clock cycle
+    //================================================
+    task idle_cycle;
+        begin
+            @(negedge i_clk);
+
+            i_valid  = 1'b0;
+            i_done   = 1'b0;
+            i_sample = 8'sd0;
+
+            @(posedge i_clk);
+            #1;
+
+            if (o_valid !== 1'b0)
+                report_error("Unexpected o_valid during idle cycle");
+        end
+    endtask
+
+    //================================================
+    // Send one complete BPSK codeword
     //
-    // bit 0 -> +127, 8 samples
-    // bit 1 -> -127, 8 samples
+    // 0 -> +127
+    // 1 -> -127
+    //
+    // 8 samples per bit
+    // 8 bits per codeword
     // MSB first
-    // --------------------------------------------
+    //
+    // i_done asserted with the 64th sample
+    //================================================
     task send_codeword;
         input [7:0] tx_codeword;
-        integer b;
-        integer s;
-    begin
-        expected_codeword = tx_codeword;
 
-        $display("----------------------------------------");
-        $display("[%0t] TX codeword = %08b",
-                 $time, tx_codeword);
+        integer bit_no;
+        integer sample_no;
 
-        // Send 8 bits, MSB first
-        for (b = 7; b >= 0; b = b - 1) begin
+        begin
+            expected_codeword = tx_codeword;
 
-            // Each bit has 8 samples
-            for (s = 0; s < 8; s = s + 1) begin
-                @(negedge i_clk);
+            $display("");
+            $display("----------------------------------------");
+            $display("[%0t] Sending codeword: %08b",
+                     $time, tx_codeword);
 
-                i_valid = 1'b1;
-                i_done  = 1'b0;
+            for (bit_no = 7; bit_no >= 0;
+                 bit_no = bit_no - 1) begin
 
-                if (tx_codeword[b] == 1'b0)
-                    i_sample = 8'sd127;
-                else
-                    i_sample = -8'sd127;
+                for (sample_no = 0; sample_no < 8;
+                     sample_no = sample_no + 1) begin
 
-                @(posedge i_clk);
-                #1;
+                    // Insert idle cycles to test i_valid gaps
+                    if (((bit_no * 8 + sample_no) % 5) == 2)
+                        idle_cycle;
 
-                // o_valid must not assert early
-                if ((b != 0 || s != 7) &&
-                    (o_valid !== 1'b0)) begin
+                    @(negedge i_clk);
 
-                    $display(
-                        "[%0t] FAIL: o_valid asserted early",
-                        $time
-                    );
+                    i_valid = 1'b1;
 
-                    error_count = error_count + 1;
+                    // done must accompany sample 64
+                    i_done = (bit_no == 0) &&
+                             (sample_no == 7);
+
+                    if (tx_codeword[bit_no] == 1'b0)
+                        i_sample = 8'sd127;
+                    else
+                        i_sample = -8'sd127;
+
+                    @(posedge i_clk);
+                    #1;
+
+                    // Check that valid does not assert early
+                    if ((bit_no != 0 || sample_no != 7) &&
+                        (o_valid !== 1'b0)) begin
+
+                        report_error(
+                            "o_valid asserted before final sample"
+                        );
+                    end
+
+                    // Check final sample
+                    if ((bit_no == 0) && (sample_no == 7)) begin
+
+                        if (o_valid !== 1'b1)
+                            report_error(
+                                "o_valid was not asserted after sample 64"
+                            );
+
+                        if (o_codeword !== expected_codeword) begin
+                            $display(
+                                "[%0t] Expected: %08b, Received: %08b",
+                                $time,
+                                expected_codeword,
+                                o_codeword
+                            );
+
+                            report_error("Incorrect decoded codeword");
+                        end
+                        else if (o_valid === 1'b1) begin
+                            $display(
+                                "[%0t] PASS: decoded codeword = %08b",
+                                $time,
+                                o_codeword
+                            );
+                        end
+                    end
                 end
             end
+
+            // Return DUT inputs to idle
+            @(negedge i_clk);
+
+            i_valid  = 1'b0;
+            i_done   = 1'b0;
+            i_sample = 8'sd0;
+
+            test_count = test_count + 1;
+
+            // Check that o_valid is a one-cycle pulse
+            @(posedge i_clk);
+            #1;
+
+            if (o_valid !== 1'b0)
+                report_error(
+                    "o_valid did not deassert after final sample"
+                );
+
         end
-
-        // After the 64th sample
-        if (o_valid !== 1'b1) begin
-            $display(
-                "[%0t] FAIL: o_valid was not asserted",
-                $time
-            );
-
-            error_count = error_count + 1;
-        end
-
-        if (o_codeword !== expected_codeword) begin
-            $display(
-                "[%0t] FAIL: expected=%08b, received=%08b",
-                $time, expected_codeword, o_codeword
-            );
-
-            error_count = error_count + 1;
-        end
-        else if (o_valid === 1'b1) begin
-            $display(
-                "[%0t] PASS: codeword=%08b, o_valid=1",
-                $time, o_codeword
-            );
-        end
-
-        test_count = test_count + 1;
-
-        // Stop sending samples
-        i_valid  = 1'b0;
-        i_sample = 8'sd0;
-
-        // Check that o_valid is a one-cycle pulse
-        @(posedge i_clk);
-        #1;
-
-        if (o_valid !== 1'b0) begin
-            $display(
-                "[%0t] FAIL: o_valid pulse is longer than 1 clock",
-                $time
-            );
-
-            error_count = error_count + 1;
-        end
-
-        @(negedge i_clk);
-    end
     endtask
 
-    // --------------------------------------------
+    //================================================
     // Main test sequence
-    // --------------------------------------------
+    //================================================
     initial begin
-        test_count = 0;
-        error_count = 0;
 
-        i_rst_n  = 1'b0;
-        i_sample = 8'sd0;
-        i_valid  = 1'b0;
-        i_done   = 1'b0;
+        i_rst_n          = 1'b0;
+        i_sample         = 8'sd0;
+        i_valid          = 1'b0;
+        i_done           = 1'b0;
 
-        $display("");
-        $display("========================================");
-        $display(" BPSK DEMODULATOR TESTBENCH");
-        $display(" Clock     : 50 MHz");
-        $display(" Samples   : 64 per codeword");
-        $display(" BPSK 0    : +127");
-        $display(" BPSK 1    : -127");
-        $display("========================================");
+        test_count       = 0;
+        error_count      = 0;
+        expected_codeword = 8'd0;
 
+        // Reset verification
         reset_dut;
 
-        // Test 1: All zeros
+        //============================================
+        // Directed test cases
+        //============================================
         send_codeword(8'b00000000);
-
-        // Test 2: All ones
         send_codeword(8'b11111111);
-
-        // Test 3: Alternating bits
         send_codeword(8'b10101010);
-
-        // Test 4: Inverse alternating bits
         send_codeword(8'b01010101);
-
-        // Test 5: Mixed patterns
-        send_codeword(8'b11010011);
-        send_codeword(8'b00101100);
         send_codeword(8'b10000001);
         send_codeword(8'b01111110);
-
-        // Test 9: Additional patterns
-        send_codeword(8'b11110000);
         send_codeword(8'b00001111);
-        send_codeword(8'b10011010);
+        send_codeword(8'b11110000);
 
-        // ----------------------------------------
-        // Summary
-        // ----------------------------------------
+        //============================================
+        // Walking-one test cases
+        //============================================
+        for (k = 0; k < 8; k = k + 1)
+            send_codeword(8'b00000001 << k);
+
+        //============================================
+        // Walking-zero test cases
+        //============================================
+        for (k = 0; k < 8; k = k + 1)
+            send_codeword(~(8'b00000001 << k));
+
+        //============================================
+        // Random test cases
+        //============================================
+        for (k = 0; k < 32; k = k + 1)
+            send_codeword($random);
+
+        //============================================
+        // Final report
+        //============================================
         $display("");
         $display("========================================");
-        $display(" TEST SUMMARY");
-        $display(" Total transactions : %0d", test_count);
-        $display(" Total errors       : %0d", error_count);
+        $display("BPSK DEMODULATOR TEST SUMMARY");
+        $display("========================================");
+        $display("Total tests : %0d", test_count);
+        $display("Total errors: %0d", error_count);
 
         if (error_count == 0)
-            $display(" RESULT: ALL TESTS PASSED");
+            $display("PASS: bpsk_demodulator_tb");
         else
-            $display(" RESULT: TEST FAILED");
+            $display("FAIL: bpsk_demodulator_tb");
 
         $display("========================================");
+
         $finish;
     end
 
-    // --------------------------------------------
+    //================================================
     // Simulation timeout
-    // --------------------------------------------
+    //================================================
     initial begin
         #2000000;
 
+        $display("");
         $display("ERROR: Simulation timeout");
+        $display("Simulation did not finish within 2 ms.");
+
         $finish;
     end
+
 endmodule
