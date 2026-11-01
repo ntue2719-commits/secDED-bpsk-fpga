@@ -35,11 +35,11 @@ module bpsk_modulator (
                 end
             end else begin
                 // Select codeword bit, MSB-first 
-                o_sample <= codeword_reg[3'd7 - sample_index[5:3]]   // reverse 7-0 -> 0-7  and convert bit 0/1 to 8x-127/8x127
+                o_sample <= codeword_reg[3'd7 - sample_index[5:3]]   // reverse 7-0 -> 0-7  and convert bit 0/1 to 8x-127/8x127 into o_sample
                             ? -8'sd127 : 8'sd127;                    // sign decimal
                 o_valid <= 1'b1;
 
-                if (sample_index == 6'd63) begin
+                if (sample_index == 6'd63) begin        
                     o_done       <= 1'b1;
                     busy         <= 1'b0;
                     sample_index <= 6'd0;
