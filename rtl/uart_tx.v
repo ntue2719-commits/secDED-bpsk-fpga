@@ -8,12 +8,13 @@
 // Project Name: FPGA SECDED + BPSK Communication Pipeline
 // Target Devices:
 // Tool Versions:
-// Description:
-// UART transmitter, 115200 baud, 8-N-1, LSB-first.
+// Description: 
+// UART transmitter, 115200 baud, 8-N-1, LSB-first (from 0-7)
 // System clock: 50 MHz.
 // Default CLKS_PER_BIT = 434.
 // i_start is accepted only while idle.
 // o_busy remains HIGH during the complete UART frame.
+// 8-N-1: 8 data bit no using parity bit, 1 stop bit.
 //////////////////////////////////////////////////////////////////////////////////
 
 `default_nettype none
@@ -38,7 +39,7 @@ module uart_tx #(
     // to reduce simulation time.
 
     // UART TX FSM states
-    localparam [2:0] IDLE  = 3'd0;
+    localparam [2:0] IDLE  = 3'd0;  //When the module is in the IDLE state, it free
     localparam [2:0] START = 3'd1;
     localparam [2:0] DATA  = 3'd2;
     localparam [2:0] STOP  = 3'd3;
@@ -55,7 +56,7 @@ module uart_tx #(
     // 1 -> D1
     // ...
     // 7 -> D7
-    reg [2:0] r_bit_index;
+    reg [2:0] r_bit_index;    //identify bit transfer from 0-7
 
     // Data register:
     // Input byte is captured when i_start is accepted.
@@ -87,7 +88,7 @@ module uart_tx #(
                         r_data <= i_data;
 
                         // Start transmission immediately with the start bit.
-                        o_tx   <= 1'b0;
+                        o_tx   <= 1'b0;  //LOW
                         o_busy <= 1'b1;
                         r_state <= START;
                     end
