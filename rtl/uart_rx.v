@@ -1,174 +1,97 @@
-`timescale 1ns / 1ps
-//////////////////////////////////////////////////////////////////////////////////
-// Company: 
-// Engineer: 
-// 
-// Create Date: 10/28/2026 10:33:04 PM
-// Design Name:
-// Module Name: uart_rx
-// Project Name: FPGA SECDED + BPSK Communication Pipeline
-// Target Devices:
-// Tool Versions:
-// Description:
-// UART receiver, 115200 baud, 8-N-1, LSB-first.
-// System clock: 50 MHz.
-// Default CLKS_PER_BIT = 434.
-// Start bit is checked near its center after CLKS_PER_BIT / 2 clocks.
-// Data bits are sampled every CLKS_PER_BIT clocks.
-// o_valid is asserted for one clock after a valid stop bit.
-//////////////////////////////////////////////////////////////////////////////////
 
+`timescale 1ns / 1ps
 `default_nettype none
 
 module uart_rx #(
-    parameter integer CLKS_PER_BIT = 434
+    parameter integer CLKS_PER_BIT = 434    // 1 bit exist in 434 cycle clock of FPGA 
 )(
-    input  wire       i_clk,
-    input  wire       i_rst_n,
-    input  wire       i_rx,
+    input wire i_clk,                       // clk = 50Mhz
+    input wire i_rst_n,                     // 0-> reset, 1->active
+    input wire i_rx,                        // receive bit 0 or 1 
 
-    output reg  [7:0] o_data,
-    output reg        o_valid
+    output reg [7:0] o_data,                // data byte after uart_rx receive enough 8 bit and check valid stop bit
+    output reg o_valid                      // announce receive 1 byte (8bit) successfully = 1 
 );
 
-    // UART timing:
-    // System clock = 50 MHz
-    // Baud rate = 115200
-    // Default CLKS_PER_BIT = 50_000_000 / 115200 = 434
-    // The parameter can be overridden in simulation
-    // to reduce simulation time.
-    
-    // Half bit period:
-    // Used to verify the start bit near its center.
-    // Default: 434 / 2 = 217 clocks.
-    localparam integer HALF_BIT_CLKS = CLKS_PER_BIT / 2;
+    localparam integer HALF_BIT_CLKS = CLKS_PER_BIT / 2; 
 
-    // UART RX FSM states
-    localparam [2:0] IDLE  = 3'd0;
-    localparam [2:0] START = 3'd1;
-    localparam [2:0] DATA  = 3'd2;
-    localparam [2:0] STOP  = 3'd3;
+    localparam [2:0] IDLE  = 3'd0;          // FSM = 000, waiting status
+    localparam [2:0] START = 3'd1;          // FSM = 001, check start bit of UART
+    localparam [2:0] DATA  = 3'd2;          // FSM = 010, receive each bit of byte 
+    localparam [2:0] STOP  = 3'd3;          // FSM = 011, check stop bit 
 
-    // Current FSM state
-    reg [2:0] r_state;
-
-    // Clock counter inside one UART bit period.
-    // 9 bits are sufficient for the default maximum count of 433.
-    reg [8:0] r_clk_count;
-
-    // Current UART data bit index:
-    // 0 -> D0
-    // 1 -> D1
-    // ...
-    // 7 -> D7
-    reg [2:0] r_bit_index;
-
-    // Internal receive shift/storage register.
-    // UART sends data LSB-first.
-    reg [7:0] r_data;
+    reg [2:0] r_state;        // register storage current status of FSM
+    reg [8:0] r_clk_count;    // count the cycle clock 
+    reg [2:0] r_bit_index;    // register for uart_rx to know đang nhận bit dữ liệu thứ mấy (0->7)
+                              // 0 = 000, 1 = 001, 2 = 010, 3 = 011, 4 = 100, 5 = 101, 6 = 110, 7 = 111
+    reg [7:0] r_data;         // temporarily storage bit which received from UART
 
     always @(posedge i_clk) begin
-        if (!i_rst_n) begin
-            // Synchronous active-low reset
-            r_state     <= IDLE;
-            r_clk_count <= 9'd0;
-            r_bit_index <= 3'd0;
-            r_data      <= 8'd0;
-            o_data      <= 8'd0;
-            o_valid     <= 1'b0;
+        if (!i_rst_n) begin             // if i_rst_n = 0 -> uart_rx reset synchronize
+            r_state     <= IDLE;        // r_state back to IDLE(waiting)
+            r_clk_count <= 9'd0;        // clk_count = 0
+            r_bit_index <= 3'd0;        // place r_bit_index to position 0 (D0)
+            r_data      <= 8'd0;        // delete data of register 
+            o_data      <= 8'd0;        // delete byte output 
+            o_valid     <= 1'b0;        // set valid = 0 -> invalid 
         end
-        else begin
-            // o_valid is a one-clock pulse.
-            // It is asserted only after a valid stop bit.
-            o_valid <= 1'b0;
+        else begin                      // active when i_rst_n = 1 
+            o_valid <= 1'b0;            // default = 0 , only become 1 when receive enough 1 byte and check valid stop bit in 1 cylce clock
 
-            case (r_state)
-
+            case (r_state)              //decide to excute IDLE or START or DATA or STOP
                 IDLE: begin
-                    // Reset counters while waiting for a new UART frame.
-                    r_clk_count <= 9'd0;
-                    r_bit_index <= 3'd0;
+                    r_clk_count <= 9'd0;     // take clk_count back to 0
+                    r_bit_index <= 3'd0;     // place r_bit_index to position 0 (D0)
 
-                    // UART line is normally HIGH when idle.
-                    // A LOW level indicates a possible start bit.
-                    if (!i_rx) begin
+                    if (!i_rx) begin        // if i_rx = 0 (start)
                         r_state <= START;
                     end
                 end
 
                 START: begin
-                    // Wait approximately half a bit period.
-                    // This moves the sampling point near the center
-                    // of the start bit to reject short glitches.
-                    if (r_clk_count == HALF_BIT_CLKS - 1) begin
-                        r_clk_count <= 9'd0;
+                    if (r_clk_count == HALF_BIT_CLKS - 1) begin   // r_clk_count = 216 
+                        r_clk_count <= 9'd0;                      // take clk_count back to 0 
 
-                        // The line must still be LOW at the center
-                        // of the start bit.
                         if (!i_rx) begin
-                            // Valid start bit confirmed.
-                            // Begin receiving UART data bits.
                             r_state <= DATA;
                         end
                         else begin
-                            // False start bit or noise pulse.
-                            // Return to idle and wait for a new frame.
                             r_state <= IDLE;
                         end
                     end
                     else begin
-                        r_clk_count <= r_clk_count + 1'b1;
+                        r_clk_count <= r_clk_count + 1'b1;         // r_clk_count + 1 until = 216 
                     end
                 end
 
                 DATA: begin
-                    // After the center of the start bit has been found,
-                    // sample each data bit once every CLKS_PER_BIT clocks.
-                    //
-                    // UART format is LSB-first:
-                    // D0 -> D1 -> D2 -> ... -> D7.
-                    if (r_clk_count == CLKS_PER_BIT - 1) begin
-                        r_clk_count <= 9'd0;
+                    if (r_clk_count == CLKS_PER_BIT - 1) begin    // r_clk_count = 434 ,start take a bit data 
+                        r_clk_count <= 9'd0;                      // reset clk_count back to 0 , and contiune count more 434 cycle 
+                        r_data[r_bit_index] <= i_rx;       // storage bit in position(0->7) of data register
 
-                        // Store current serial bit into its correct
-                        // position in the received byte.
-                        r_data[r_bit_index] <= i_rx;
-
-                        if (r_bit_index == 3'd7) begin
-                            // All 8 data bits have been received.
-                            // Move to stop-bit checking.
-                            r_bit_index <= 3'd0;
-                            r_state <= STOP;
+                        if (r_bit_index == 3'd7) begin      // position 7 received bit -> enough 8 bit 
+                            r_bit_index <= 3'd0;            // restart to 0 to repair for next byte 
+                            r_state <= STOP;                
                         end
                         else begin
-                            // Continue with the next data bit.
-                            r_bit_index <= r_bit_index + 1'b1;
+                            r_bit_index <= r_bit_index + 1'b1;  // count for bit_dex from D0->D7 
                         end
                     end
                     else begin
-                        r_clk_count <= r_clk_count + 1'b1;
+                        r_clk_count <= r_clk_count + 1'b1;     //count until clk_count = 433
                     end
                 end
 
                 STOP: begin
-                    // Wait one full bit period from the last data sample
-                    // and sample the stop bit.
-                    //
-                    // For UART 8-N-1, the stop bit must be HIGH.
-                    if (r_clk_count == CLKS_PER_BIT - 1) begin
-                        r_clk_count <= 9'd0;
+                    if (r_clk_count == CLKS_PER_BIT - 1) begin      //check clk_count = 433 or not
+                        r_clk_count <= 9'd0;                        // if = 433 -> reset to 0 
 
-                        if (i_rx) begin
-                            // Valid stop bit.
-                            // Publish the received byte and assert
-                            // o_valid for exactly one clock.
-                            o_data  <= r_data;
-                            o_valid <= 1'b1;
+                        if (i_rx) begin           // if i_rx = 1
+                            o_data <= r_data;     // store data in r_data to o_data
+                            o_valid <= 1'b1;      // valid
                         end
 
-                        // Whether stop bit is valid or invalid,
-                        // return to IDLE and wait for the next frame.
-                        r_state <= IDLE;
+                        r_state <= IDLE;        // back to the IDLE after valid 
                     end
                     else begin
                         r_clk_count <= r_clk_count + 1'b1;
@@ -176,12 +99,10 @@ module uart_rx #(
                 end
 
                 default: begin
-                    // Safety recovery for illegal FSM state.
-                    r_state     <= IDLE;
+                    r_state <= IDLE;
                     r_clk_count <= 9'd0;
                     r_bit_index <= 3'd0;
                 end
-
             endcase
         end
     end
